@@ -1,0 +1,18 @@
+# PICO 双臂遥操 —— 运行环境
+#
+#   conda activate teleop
+#   pip install -r requirements.txt
+#
+# 注：pinocchio 与 xrobotoolkit-sdk 建议直接用 conda / 官方渠道装，
+#     pip 上没有等价的 wheel。下面两行仅作为「已有则不装」的记录。
+
+# --- 逆解（pinocchio DLS） ---
+# conda install -c conda-forge pinocchio=4.1.0
+pinocchio>=4.1.0
+
+# --- 数值 ---
+numpy>=1.24
+
+# --- PICO 采集（xrobotoolkit_sdk） ---
+# 由 XRoboToolkit 官方提供，见 XRoboToolkit-Teleop-Sample-Python
+xrobotoolkit-sdk>=1.1.0

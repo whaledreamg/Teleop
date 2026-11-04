@@ -1,0 +1,27 @@
+{
+  "comment": [
+    "机械臂控制器连接配置 —— 所有脚本的 IP / 端口都从这里读。",
+    "换控制器只改这个文件，不用动代码。",
+    "",
+    "controller.host          控制器 IP。控制面（TCP）和指令面（UDP）都走它。",
+    "controller.control_port  控制面 TCP 端口：请求—响应（入控/停控/使能/查询）。",
+    "controller.command_port  指令面 UDP 端口：发关节目标（不回包）。",
+    "controller.push_period_ms  状态推送周期（ms）。",
+    "controller.push_ip       本机接收推送的 IP。null = 自动按「到控制器的源地址」推断。",
+    "                        ⚠️ 写死 127.0.0.1 会让控制器把状态推给它自己，本机永远收不到。",
+    "arms                    机械臂名字列表（LeftArm / RightArm）。",
+    "",
+    "环境变量覆盖：TELOP_ROBOT_HOST 可临时改 host（调试用），优先级高于本文件。"
+  ],
+  "controller": {
+    "host": "192.168.100.16",
+    "control_port": 9001,
+    "command_port": 9030,
+    "push_period_ms": 20,
+    "push_ip": null
+  },
+  "arms": [
+    "LeftArm",
+    "RightArm"
+  ]
+}

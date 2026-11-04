@@ -1,0 +1,240 @@
+{
+  "comment": [
+    "遥操参数 —— 关键可调项全部落在这里，改完立刻生效（不必重启进程）。",
+    "单位：长度 m、角度 rad、时间 s、速度 m/s、角速度 rad/s。",
+    "",
+    "══════════════════════════════════════════════════════════════════════",
+    "分段说明",
+    "══════════════════════════════════════════════════════════════════════",
+    "  stream    发包节拍 / 会话参数",
+    "  ik        逆解参数（pinocchio DLS，结构对齐 tele_ik）",
+    "  deadzone  锚点滞回死区（⚠️ 不是逐帧增量阈值，见 teleop_map.AnchorDeadzone）",
+    "  limits    行程与单帧上限",
+    "  align     坐标系对齐（每臂基座标）",
+    "  home      归位限速参数（与 ready_pose.json 配合）",
+    "  hand      Revo2 灵巧手（扳机开合）",
+    "  agv       AGV 开环控制（左手柄菜单键连接 + 左摇杆）",
+    "  lift      升降柱点动（右摇杆按下使能 + 右摇杆拨动）",
+    "  pd        **预留段**，PD 暂不做（用户确认）"
+  ],
+
+  "stream": {
+    "rate_hz": 200.0,
+    "command_mode": 0,
+    "control_space": 0,
+    "unit_type": "si",
+    "hold_on_idle": true,
+    "cartesian_ik_path": "none",
+    "joint_limit": {
+      "enable": true,
+      "max_velocity": 1.5,
+      "max_acceleration": 5.0
+    },
+    "comment": [
+      "control_space=0 = 关节空间（客户端自己逆解，控制器只吃关节角）。",
+      "command_mode=0 = 绝对关节角（影子位姿积分出来的目标本身是绝对值）。",
+      "cartesian_ik_path=none = 会话只收关节包，绝不混发末端包。",
+      "⚠️ 混发会让控制器的『上一目标』基准失效，空间切换后增量语义全乱。",
+      "hold_on_idle=true = 停发多久都不掉线，机器人停在最后目标。",
+      "rate_hz = 下发频率(Hz)，范围 10~1000，同时作为会话 expectedFrequency，命令行 --freq 可覆盖。",
+      "  实测单臂 IK 约 0.7ms/次，双臂 200Hz 内余量充足；频率越高跟随越紧，但 VR 采集也要跟上(--vr-rate)。",
+      "  单帧关节步长上限 = 0.9×限速/频率，所以提频后每帧步长自动变小，总速度不变。",
+      "joint_limit = 会话级关节限速(rad/s)/限加速度(rad/s²)，命令行 --max-vel/--max-acc 可覆盖。",
+      "  控制器与安全上限取严，只能更严不能更松。",
+      "  跟随慢先看启动时打印的『生效限速/限加速度』：若比这里的值低，说明被安全上限压住了。",
+      "  只提速度不够，加速度同样卡跟随：仿真里 1.5 rad/s 配 1.0 rad/s² 时 200mm/s 手速仍落后约 90mm。"
+    ]
+  },
+
+  "ik": {
+    "max_iters": 60,
+    "tol_pos_m": 1.0e-4,
+    "tol_rot_rad": 1.0e-3,
+    "damping": 1.0e-6,
+    "step": 0.5,
+    "posture_gain": 0.02,
+    "max_step_deg": 3.0,
+    "multistart_count": 24,
+    "multistart_seed": 0,
+    "big_joint_weight": 6.0,
+    "comment": [
+      "big_joint_weight = J1-J4 的移动代价权重（J5-J7 为 1）。越大越倾向用腕部关节吸收姿态变化，",
+      "  只转手腕时大关节基本不动；1.0 = 关闭（旧行为）。腕接近奇异（J6≈0）时过大会让腕关节抖，",
+      "  实测 6 在正常位形下大关节从 11° 降到 4.6°，建议 4~10。",
+      "posture_gain = 零空间姿态回拉，把解往 q_seed 拉 —— 防七轴冗余跳解支。",
+      "对应 tele_ik 的 0.1 * smooth_cost（拉向上一拍解）。",
+      "max_step_deg = 单帧单关节最大增量（rad/帧 的度表示），防跳解支 + 防冲出去。",
+      "tol_pos/tol_rot = 位置与姿态**分开**判阈值（对应 tele_ik 的 translational_cost / rotational_cost 分判）。",
+      "实测：pinocchio DLS（8 次迭代、7-DOF）单臂中位 0.10 ms、p95 0.11 ms ⇒ 双臂 90Hz（11.1ms 预算）余量充足。"
+    ]
+  },
+
+  "deadzone": {
+    "pos_deadzone_m": 0.005,
+    "pos_hysteresis_m": 0.002,
+    "rot_deadzone_rad": 0.0175,
+    "rot_hysteresis_rad": 0.0087,
+    "vel_deadzone_mps": 0.020,
+    "vel_hysteresis_frac": 0.5,
+    "smooth_tau_s": 0.050,
+    "leak": 0.05,
+    "comment": [
+      "⚠️ 必须是**锚点滞回式**，不能用逐帧增量阈值。",
+      "90 Hz + 3.5mm 逐帧阈值 ⇒ 等效 315mm/s 速度闸门，会把正常遥操手速（50~300mm/s）整个吃掉。",
+      "锚点式（EMA + 累积位移滞回 + 速度闸门）保证 100mm 慢移末端也走满 100mm。",
+      "rot_deadzone_rad 0.0175 ≈ 1°。"
+    ]
+  },
+
+  "limits": {
+    "max_step_m": 0.020,
+    "max_step_rad": 0.0873,
+    "scale": 1.0,
+    "comment": [
+      "max_step_m / max_step_rad = 单包位移/旋转上限（追踪丢帧或手柄瞬移时的猛冲保护）。",
+      "scale = 位置缩放（1.0 = 1:1）。"
+    ]
+  },
+
+  "align": {
+    "mode": "base_frame",
+    "rot_mode": "world",
+    "rotate_about_wrist": true,
+    "comment": [
+      "rotate_about_wrist = 遥操的旋转绕腕心（j5/j6/j7 三轴交点）转，而不是绕 TCP 转。",
+      "  true：只转手腕时，腕部关节动，大关节基本不动（TCP 会画小弧）。",
+      "  false：旧行为，绕 TCP 转，TCP 位置不动，但大关节要摆。",
+      "  腕心偏移从各臂 URDF 自动算，无需手填。",
+      "mode=base_frame = 每臂基座标对齐（手柄的『前/上/右』对齐到该臂基座标的『前/上/右』）。",
+      "  可选 world（VR 系与世界系同口径，直接恒等）。",
+      "rot_mode=world = 旋转增量世界系刚体传递（与参考实现逐位一致）。",
+      "  可选 tcp_body（末端体坐标系传递，『把手柄当工具握』手感）。",
+      "⚠️ 对齐分两个旋转，绝不能混用：",
+      "   rot       = VR -> TCP 体坐标系（用于旋转增量）",
+      "   trans_rot = VR -> 世界系常量（用于平移增量）",
+      "   平移方向绝不能乘末端姿态推出的旋转。"
+    ]
+  },
+
+  "home": {
+    "max_speed_mps": 0.05,
+    "arrive_tol_mm": 5.0,
+    "arrive_tol_rad": 0.035,
+    "rotate": true,
+    "max_joint_step_deg": 2.0,
+    "comment": [
+      "max_speed_mps = 归位时限速（m/s）。『缓慢回到准备点』就是这个速度。",
+      "arrive_tol_mm = 到位判据的**位置**容差（mm），用**实测**位姿判。",
+      "arrive_tol_rad = 到位判据的**姿态**容差（rad）—— ⚠️ 位置与姿态都要到位，",
+      "  只判位置会『位置对了但朝向没转过去』。",
+      "rotate = 是否同时归位姿态。",
+      "max_joint_step_deg = 归位时的单帧单关节最大增量（防突跳）。",
+      "⚠️ 归位基准用**控制器上一目标**而非实测位姿。实测滞后会让每包补滞后量 ⇒ 冲过准备点 ⇒ 在附近振荡不收敛。"
+    ]
+  },
+
+  "hand": {
+    "enabled": true,
+    "mode": "proportional",
+    "open_pose": [0, 0, 0, 0, 0, 0],
+    "close_pose": [1000, 0, 1000, 1000, 1000, 1000],
+    "trigger_low": 0.05,
+    "trigger_high": 0.95,
+    "binary_on": 0.6,
+    "binary_off": 0.45,
+    "write_time_ms": 120,
+    "min_interval_ms": 120,
+    "min_change": 20,
+    "baud_rate": 115200,
+    "slaves": {"left": "EtherCAT485L", "right": "EtherCAT485R"},
+    "modbus_addr": {"left": 126, "right": 127},
+    "comment": [
+      "Revo2 灵巧手：扳机 -> 开合。协议移植自 RobotControls/communication/revo2_hand.py。",
+      "  走控制面的 rs485/list|init|write|read（Modbus RTU）。API 2026-10-28 起 ec2rs485/* 已迁为",
+      "  rs485/*，按 channel 操作，gripper/setType 已删除。channel 由程序按 slaves 里的从站名",
+      "  从 rs485/list 自动查出，不要手填。",
+      "  该手的 gripper 设备型号须是 Generic485（否则通道被厂商夹爪协议占用，返回 23252）；",
+      "  型号现在只能经 peripheral/saveConfig + applyConfig 修改，本程序不代办。",
+      "  左手柄扳机 -> 左手，右手柄扳机 -> 右手。与臂是否使能、是否握持无关。",
+      "",
+      "mode = proportional：扳机 0~1 线性映射到 open_pose ~ close_pose（半按半合）。",
+      "       binary：超过 binary_on 一把抓，跌破 binary_off 才释放（带迟滞，等价参考实现的『一把抓/释放』）。",
+      "open_pose / close_pose = 6 个自由度的 0~1000 归一化位置，顺序：",
+      "  [拇指弯曲, 拇指侧摆, 食指, 中指, 无名指, 小指]。默认即参考实现的『释放』与『一把抓』。",
+      "trigger_low / trigger_high = 扳机死区：低于 low 视为全开，高于 high 视为全合。",
+      "write_time_ms = 每帧下发给手的到位时间（1~2000）。越小手越跟得紧，但动作越猛。",
+      "",
+      "⚠️ 下发上限：一次下发 = rs485/write + rs485/read 两次往返，并要等通信板发送和手应答，",
+      "  远慢于臂控的 90Hz。新版文档没给具体下限，实际多快上机实测，再调 min_interval_ms。",
+      "  min_change = 变化小于它(0~1000)就不下发，减少无谓通信。",
+      "⚠️ 手的初始化失败只停用那只手，不影响臂控。--no-hand 或 enabled=false 可整体关闭。"
+    ]
+  },
+
+  "agv": {
+    "enabled": true,
+    "ip": "192.168.100.101",
+    "port": 19205,
+    "max_linear_mps": 0.2,
+    "max_angular_radps": 0.3,
+    "stick_deadzone": 0.15,
+    "forward_sign": 1,
+    "turn_sign": 1,
+    "send_hz": 10,
+    "duration_ms": 200,
+    "connect_timeout_s": 3.0,
+    "stale_s": 0.3,
+    "comment": [
+      "AGV 开环控制（Seer 协议 19205 控制口，指令 2010）。移植自 RobotControl/communication/agv_tcp_client.py。",
+      "  左手柄菜单键 = 连接 <-> 断开；连接后直接拨动左摇杆 = 运动，回中立即停（无需按压）。启动时不自动连接。",
+      "  拨杆上下 = 前进 / 后退(vx)，左右 = 转向(w)，不用 vy（差速车）。",
+      "ip / port 取自参考项目 RobotControl 的缺省值(192.168.100.101 / 19205)，现场不同请改这里。",
+      "max_linear_mps / max_angular_radps = 拨杆推满的速度上限。参考界面缺省 0.5 m/s，",
+      "  这里取 0.2 / 0.3：模拟摇杆在操作者站在机械臂旁时偏快不安全，先保守，实测后再放。",
+      "stick_deadzone = 拨杆死区，之外线性重新归一，所以速度从 0 平滑起步。",
+      "forward_sign / turn_sign = 方向反了就改成 -1（实机第一次必须核对）。",
+      "send_hz / duration_ms = 开环指令重发频率与有效期。duration 必须大于一个发送周期，",
+      "  且正是它让断线 / 程序卡死时 AGV 在 duration 内自己停下，不依赖'停止'指令发得出去。",
+      "stale_s = 超过它没收到摇杆数据就视为松手。",
+      "连接后须先见到一次'摇杆回中'才允许运动，避免连上瞬间摇杆还拨着就窜出去。",
+      "不连推送口(19301)：没有电量 / 位置反馈。AGV 拒绝指令时会打印 ret_code。"
+    ]
+  },
+
+  "lift": {
+    "enabled": true,
+    "device": null,
+    "speed_mps": null,
+    "up_sign": 1,
+    "stick_on": 0.5,
+    "stick_off": 0.3,
+    "timeout_ms": 500,
+    "heartbeat_ms": 150,
+    "stale_s": 0.3,
+    "stop_wait_s": 3.0,
+    "comment": [
+      "升降柱点动（控制器 9001 的 liftingColumn/*，手册第 34 章）。",
+      "  右摇杆按下 = 使能 <-> 下电；使能后直接上下拨动右摇杆 = 点动，回中立即停（无需按压）。",
+      "  启动时不自动使能。是否已使能以控制器 getState.enabled 为准（急停会让它自动下电）。",
+      "device = null 时取 liftingColumn/list 的第一台（出厂 'Column'）。",
+      "speed_mps = null 时用控制器的 jogVelocity（现场实测 0.03 m/s，上限 0.1）。",
+      "up_sign = 方向反了改 -1。",
+      "stick_on / stick_off = 拨杆起动 / 停止阈值，带迟滞防边界抖动。",
+      "timeout_ms / heartbeat_ms = 点动心跳超时与间隔。停发心跳升降柱就减速停下，",
+      "  所以程序崩溃 / 断线时它自己会停。heartbeat_ms 须 <= timeout_ms/2。",
+      "到软限位(23273)会提示并要求先松手；这是正常现象，不是故障。",
+      "下电前先 jogStop 并等 moving=false：运动中 disable 是直接断电不减速。"
+    ]
+  },
+
+  "pd": {
+    "enabled": false,
+    "kp": 0.0,
+    "kd": 0.0,
+    "comment": [
+      "PD 段 —— 预留，暂不做（用户明确说 PD 暂时不考虑）。",
+      "未来若要加客户端侧 PD 修正，就在下发前对影子目标做二阶整形；",
+      "但注意控制器侧已有插值 + jointLimit 限速，别叠太多。"
+    ]
+  }
+}

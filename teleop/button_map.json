@@ -1,0 +1,119 @@
+{
+  "comment": [
+    "PICO 双臂遥操按键映射 —— 逻辑键 -> 物理键绑定。",
+    "",
+    "物理键位（Pico 4 / Touch Plus，A/B/X/Y 无左右前缀，靠 which+kind 分派）：",
+    "  左手柄 primary = X    左手柄 secondary = Y",
+    "  右手柄 primary = A    右手柄 secondary = B",
+    "",
+    "══════════════════════════════════════════════════════════════════════",
+    "按键语义（本方案已确认）",
+    "══════════════════════════════════════════════════════════════════════",
+    "  X（左手柄 primary）  按住 -> 左臂缓慢回到准备点；松手立即停止",
+    "  A（右手柄 primary）  按住 -> 右臂缓慢回到准备点；松手立即停止",
+    "  Y（左手柄 secondary）按下 -> 双臂上电使能 + 建立实时会话（边沿事件）",
+    "  B（右手柄 secondary）按下 -> 双臂停控 + 下电失能（边沿事件）",
+    "  左握持 >= 阈值        左臂开始遥操（建立坐标系对齐）；松开 -> 停止下发左臂",
+    "  右握持 >= 阈值        右臂开始遥操；松开 -> 停止下发右臂",
+    "  左手柄 菜单键          AGV 开环控制 连接 <-> 断开（边沿）；启动时不自动连接",
+    "  左摇杆 拨动            AGV 连接后直接拨动即开环运动：上下=前后(vx)，左右=转向(w)；回中立即停（不需按压）",
+    "  右摇杆 按下            升降柱 使能 <-> 下电（边沿）；启动时不自动使能",
+    "  右摇杆 拨动            升降柱使能后直接上下拨动即点动：拨上=上升，拨下=下降；回中立即停（不需按压）",
+    "  （AGV / 升降柱与双臂的 Y 上电 / B 下电完全独立，互不影响）",
+    "",
+    "══════════════════════════════════════════════════════════════════════",
+    "两类事件：边沿锁存 vs 电平查询",
+    "══════════════════════════════════════════════════════════════════════",
+    "  控制循环 90 Hz、采集 200 Hz，两者不同步 —— 一次快速轻点（按下到松开",
+    "  可能只有 30~80 ms）完全可能整个按压过程落在两次轮询之间。所以：",
+    "",
+    "  * 边沿锁存（consume_latched）：Y / B 这种『不容漏』的一次性动作。",
+    "    press 边沿产生时置位，直到消费者显式 consume_latched() 才清除。",
+    "    漏读不可能，只可能多读一次（多读对启停无害）。",
+    "",
+    "  * 电平查询（query）：X / A 按住归位、握持选臂。这类语义本来就是",
+    "    『按住多久就做多久』，用瞬时电平才对；用锁存会在松手后继续动作。",
+    "",
+    "⚠️ 归位与遥操**互斥**：按住 X/A 归位时，该臂的握持遥操通道被冻结。",
+    "   两者都是往同一个影子目标上叠加增量，混用会让影子发散、永远归不到位。",
+    "",
+    "⚠️ 松开握持只停『下发』，**会话保留**、机器人停在最后目标",
+    "   （入控用 holdOnIdle: true）。这与『松开左机械臂不下发控制』一致。"
+  ],
+  "bindings": [
+    {
+      "name": "teleop.enable",
+      "kind": "button",
+      "source": {"which": "left", "source": "secondary"},
+      "comment": "Y 键：双臂上电使能 + 建立实时会话。边沿锁存 —— 主循环用 consume_latched() 取走，漏不掉"
+    },
+    {
+      "name": "teleop.disable",
+      "kind": "button",
+      "source": {"which": "right", "source": "secondary"},
+      "comment": "B 键：双臂停控 + 下电失能。边沿锁存 —— 主循环用 consume_latched() 取走，漏不掉。程序不退出，按 Y 可再次上电"
+    },
+
+    {
+      "name": "home.left",
+      "kind": "button",
+      "source": {"which": "left", "source": "primary"},
+      "latch": false,
+      "comment": "X 键：左臂归位。**电平语义** —— 按住则持续归位，松手立即停止（停在当前位置）。latch=false：不产生边沿锁存，避免消费方读到锁存后在松手后仍继续归位"
+    },
+    {
+      "name": "home.right",
+      "kind": "button",
+      "source": {"which": "right", "source": "primary"},
+      "latch": false,
+      "comment": "A 键：右臂归位。同上（电平语义，latch=false）"
+    },
+
+    {
+      "name": "left_arm.active",
+      "kind": "analog",
+      "source": {"which": "left", "source": "grip"},
+      "threshold": 0.6,
+      "hysteresis": 0.15,
+      "latch": false,
+      "comment": "左握持键 >= 0.6：左臂开始遥操（建立该臂坐标系对齐）。跌破 0.45 才释放 —— 迟滞避免握持值在阈值附近抖动导致机械臂反复冻结/解冻。电平语义，latch=false"
+    },
+    {
+      "name": "right_arm.active",
+      "kind": "analog",
+      "source": {"which": "right", "source": "grip"},
+      "threshold": 0.6,
+      "hysteresis": 0.15,
+      "latch": false,
+      "comment": "右握持键 >= 0.6：右臂开始遥操（同上，带迟滞）"
+    },
+
+    {
+      "name": "hand.left",
+      "kind": "analog",
+      "source": {"which": "left", "source": "trigger"},
+      "latch": false,
+      "comment": "左手柄扳机 0~1 -> 左灵巧手开合（0=张开，1=合拢）。主循环用 query_value() 取模拟值，映射与限速见 teleop_params.json 的 hand 段"
+    },
+    {
+      "name": "hand.right",
+      "kind": "analog",
+      "source": {"which": "right", "source": "trigger"},
+      "latch": false,
+      "comment": "右手柄扳机 0~1 -> 右灵巧手开合（同上）"
+    },
+
+    {
+      "name": "agv.toggle",
+      "kind": "button",
+      "source": {"which": "left", "source": "menu"},
+      "comment": "左手柄菜单键：AGV 开环控制 连接 <-> 断开。边沿锁存。遥操启动时不会自动触发"
+    },
+    {
+      "name": "lift.toggle",
+      "kind": "button",
+      "source": {"which": "right", "source": "axis_click"},
+      "comment": "右摇杆按下：升降柱 使能 <-> 下电。边沿锁存。右手柄截屏键被系统占用，故改用右摇杆按下。使能后直接上下拨动右摇杆点动，不再需要按压"
+    }
+  ]
+}
